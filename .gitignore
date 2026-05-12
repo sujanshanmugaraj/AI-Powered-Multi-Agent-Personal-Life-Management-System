@@ -1,0 +1,52 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environments
+venvai/
+env/
+.venv/
+.env_backup
+
+# Environment variables — NEVER commit these
+.env
+.env.local
+.env.production
+
+# Database — local SQLite file
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+*.log
+logs/
+
+# Node / Frontend
+node_modules/
+dist/
+.vite/
+frontend/dist/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+"venvai/" 
+"venvai/" 

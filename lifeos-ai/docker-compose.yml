@@ -1,0 +1,115 @@
+"""
+Docker Compose configuration for LifeOS AI services
+"""
+
+version: '3.8'
+
+services:
+  # FastAPI Backend
+  backend:
+    build: ./backend
+    container_name: lifeos-backend
+    ports:
+      - "8000:8000"
+    environment:
+      DATABASE_URL: postgresql://lifeos_user:lifeos_pass@postgres:5432/lifeos_db
+      REDIS_URL: redis://redis:6379
+      NEO4J_URL: neo4j://neo4j:7687
+      NEO4J_USERNAME: neo4j
+      NEO4J_PASSWORD: neo4j_password
+      LLM_API_KEY: ${LLM_API_KEY}
+      DEBUG: "False"
+    depends_on:
+      - postgres
+      - redis
+      - neo4j
+    volumes:
+      - ./backend:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
+
+  # React Frontend
+  frontend:
+    build: ./frontend
+    container_name: lifeos-frontend
+    ports:
+      - "3000:3000"
+    environment:
+      REACT_APP_API_URL: http://backend:8000/api/v1
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend:/app
+
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: lifeos-postgres
+    environment:
+      POSTGRES_USER: lifeos_user
+      POSTGRES_PASSWORD: lifeos_pass
+      POSTGRES_DB: lifeos_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lifeos_user -d lifeos_db"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: lifeos-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Neo4j Graph Database
+  neo4j:
+    image: neo4j:latest
+    container_name: lifeos-neo4j
+    environment:
+      NEO4J_AUTH: neo4j/neo4j_password
+      NEO4J_PLUGINS: '["apoc"]'
+    ports:
+      - "7687:7687"
+      - "7474:7474"
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:7474"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # ChromaDB Vector Database
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: lifeos-chromadb
+    ports:
+      - "8001:8000"
+    volumes:
+      - chromadb_data:/chroma/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  postgres_data:
+  redis_data:
+  neo4j_data:
+  chromadb_data:
+
+networks:
+  default:
+    name: lifeos-network
