@@ -5,7 +5,7 @@ A production-level collaborative multi-agent AI system that helps you create per
 ## 🎯 Vision
 
 Transform how people manage their busy lives by:
-- Detecting emotional state and adapting recommendations accordingly
+- Detecting emotional state and adapting recommendations accordingly 
 - Coordinating multiple life domains (health, learning, finance, etc.)
 - Resolving conflicts between competing priorities
 - Learning from user feedback to improve over time
