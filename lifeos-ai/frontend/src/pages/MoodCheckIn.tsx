@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useAppStore } from '@store/appStore'
 import { useMoodAnalysis } from '@hooks/useApi'
 import toast from 'react-hot-toast'
@@ -87,9 +88,9 @@ export const MoodCheckInPage: React.FC = () => {
     <div className="min-h-screen p-6 md:p-10 max-w-4xl mx-auto">
 
       {/* Back nav */}
-      <a href="/" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors">
+      <Link to="/" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors no-underline">
         ← back to dashboard
-      </a>
+      </Link>
 
       {/* Header */}
       <div className="mb-8 animate-slideUp">
@@ -199,12 +200,12 @@ export const MoodCheckInPage: React.FC = () => {
               </div>
 
               {/* CTA */}
-              <a
-                href="/plan"
-                className="btn-neon btn-neon-cyan w-full py-4 flex items-center justify-center gap-2 text-sm"
+              <Link
+                to="/plan"
+                className="btn-neon btn-neon-cyan w-full py-4 flex items-center justify-center gap-2 text-sm no-underline"
               >
                 <span>📅</span> generate today's plan
-              </a>
+              </Link>
             </>
           ) : (
             /* Empty state */
@@ -236,3 +237,5 @@ export const MoodCheckInPage: React.FC = () => {
     </div>
   )
 }
+
+export default MoodCheckInPage

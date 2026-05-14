@@ -1,7 +1,6 @@
 import React, { useState } from 'react'
 import toast from 'react-hot-toast'
-
-const API = import.meta.env.VITE_API_URL || 'http://localhost:8000/api/v1'
+import { apiClient } from '../services/apiClient'
 
 export const Login: React.FC = () => {
   const [name,  setName]  = useState('')
@@ -16,13 +15,7 @@ export const Login: React.FC = () => {
     }
     setLoading(true)
     try {
-      const res = await fetch(`${API}/users`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ name, email }),
-      })
-      if (!res.ok) throw new Error('server error')
-      const user = await res.json()
+      const user = await apiClient.createOrGetUser(name, email)
       localStorage.setItem('user_id',    String(user.id))
       localStorage.setItem('user_name',  user.name)
       localStorage.setItem('user_email', user.email)

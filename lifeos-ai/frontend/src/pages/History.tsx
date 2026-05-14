@@ -1,4 +1,5 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAppStore } from '@store/appStore'
 import { useHistory } from '@hooks/useApi'
 import { format } from 'date-fns'
@@ -15,13 +16,14 @@ const MOOD_COLOR: Record<string, string> = {
 export const HistoryPage: React.FC = () => {
   const { user } = useAppStore()
   const [page, setPage] = useState(1)
+  const [expandedId, setExpandedId] = useState<string | null>(null)
   const { data: history, isLoading } = useHistory(user?.id || '', 20, (page - 1) * 20)
 
   return (
     <div className="min-h-screen p-6 md:p-10 max-w-4xl mx-auto">
-      <a href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors">
+      <Link to="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors no-underline">
         ← back to dashboard
-      </a>
+      </Link>
 
       <div className="mb-8 animate-slideUp">
         <h1 className="text-4xl font-black text-white mb-2" style={{ fontFamily: 'Syne, sans-serif' }}>
@@ -43,11 +45,13 @@ export const HistoryPage: React.FC = () => {
               const mood = item.mood
               const moodColor = MOOD_COLOR[mood?.mood || 'neutral'] || '#94a3b8'
               const taskCount = item.plan?.plan?.length ?? 0
+              const isExpanded = expandedId === item.id
               return (
                 <div
                   key={idx}
-                  className="glass-card p-5 animate-slideUp"
+                  className="glass-card p-5 animate-slideUp cursor-pointer transition-all duration-300"
                   style={{ animationDelay: `${idx * 60}ms`, borderLeft: `3px solid ${moodColor}` }}
+                  onClick={() => setExpandedId(isExpanded ? null : item.id)}
                 >
                   <div className="flex flex-col md:flex-row md:items-center gap-4">
 
@@ -90,7 +94,7 @@ export const HistoryPage: React.FC = () => {
                           {taskCount} tasks planned
                         </p>
                         <div className="flex flex-wrap gap-1.5">
-                          {item.plan.plan.slice(0, 3).map((task, tidx) => {
+                          {item.plan.plan.slice(0, 3).map((task: any, tidx: number) => {
                             const taskName = typeof task === 'string' ? task : (task as any).task || ''
                             return (
                               <span
@@ -127,6 +131,60 @@ export const HistoryPage: React.FC = () => {
                       </div>
                     )}
                   </div>
+
+                  {/* Expanded Content */}
+                  {isExpanded && (
+                    <div className="mt-6 pt-6 border-t border-white/10 animate-fadeIn space-y-6">
+                      
+                      {/* Detailed Plan */}
+                      {item.plan && item.plan.plan.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase mb-3">Full Schedule</p>
+                          <div className="space-y-2">
+                            {item.plan.plan.map((p: any, pIdx: number) => (
+                              <div key={pIdx} className="flex gap-3 text-sm p-2 rounded bg-white/5 border border-white/5">
+                                <span className="font-bold text-slate-300 w-24 shrink-0">{p.time || ''}</span>
+                                <span className="text-slate-300">{p.task}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Tracked Tasks */}
+                      {item.task_summaries && item.task_summaries.length > 0 && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase mb-3">Tracked Tasks</p>
+                          <div className="space-y-2">
+                            {item.task_summaries.map((ts: any, tsIdx: number) => {
+                              const isDone = ts.status === 'completed'
+                              return (
+                                <div key={tsIdx} className="flex justify-between p-2 rounded bg-white/5 border border-white/5">
+                                  <div>
+                                    <span className={`text-sm ${isDone ? 'line-through text-slate-500' : 'text-cyan-400 font-bold'}`}>
+                                      {ts.title}
+                                    </span>
+                                  </div>
+                                  <span className={`text-xs px-2 py-1 rounded ${isDone ? 'bg-green-500/20 text-green-400' : 'bg-slate-500/20 text-slate-400'}`}>
+                                    {isDone ? 'completed' : 'pending'}
+                                  </span>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Explanation */}
+                      {item.plan?.explanation && (
+                        <div>
+                          <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase mb-2">AI Reasoning</p>
+                          <p className="text-sm text-slate-400 leading-relaxed">{item.plan.explanation}</p>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
                 </div>
               )
             })}
@@ -162,11 +220,13 @@ export const HistoryPage: React.FC = () => {
             no history yet
           </h2>
           <p className="text-slate-400 mb-6">your journey starts with your first mood check-in ✨</p>
-          <a href="/mood" className="btn-neon py-3 px-8 inline-flex items-center gap-2">
+          <Link to="/mood" className="btn-neon py-3 px-8 inline-flex items-center gap-2 no-underline">
             🧠 check in now
-          </a>
+          </Link>
         </div>
       )}
     </div>
   )
 }
+
+export default HistoryPage

@@ -1,6 +1,6 @@
 // User Type
 export interface User {
-  id: number
+  id: string
   name: string
   email: string
   created_at?: string
@@ -13,6 +13,7 @@ export interface MoodData {
   energy_score: number
   confidence: number
   reasoning: string
+  created_at?: string
 }
 
 export interface AgentProposal {
@@ -42,6 +43,7 @@ export interface DailyPlan {
   explanation: string
   created_at?: string
   mood?: MoodData
+  saved_tasks?: any[]
 }
 
 export interface Feedback {
@@ -58,13 +60,7 @@ export interface HistoryItem {
   mood?: MoodData
   plan?: DailyPlan
   feedback?: Feedback
-}
-
-export interface User {
-  id: string
-  name: string
-  email: string
-  created_at?: string
+  task_summaries?: any[]
 }
 
 // UI State Types

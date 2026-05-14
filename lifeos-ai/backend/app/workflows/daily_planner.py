@@ -10,6 +10,7 @@ from app.agents.finance_agent import FinanceAgent
 from app.agents.learning_agent import LearningAgent
 from app.agents.schedule_agent import ScheduleAgent
 from app.agents.mediator_agent import MediatorAgent
+from app.agents.task_planner_agent import TaskPlannerAgent
 
 logger = logging.getLogger(__name__)
 
@@ -23,24 +24,27 @@ class DailyPlannerGraph:
     def _make_agents(self, memory_system=None):
         """Instantiate all agents with the given memory system."""
         return {
-            "mood":     MoodAgent(memory_system=memory_system),
-            "health":   HealthAgent(memory_system=memory_system),
-            "finance":  FinanceAgent(memory_system=memory_system),
-            "learning": LearningAgent(memory_system=memory_system),
-            "schedule": ScheduleAgent(memory_system=memory_system),
-            "mediator": MediatorAgent(memory_system=memory_system),
+            "mood":          MoodAgent(memory_system=memory_system),
+            "health":        HealthAgent(memory_system=memory_system),
+            "finance":       FinanceAgent(memory_system=memory_system),
+            "learning":      LearningAgent(memory_system=memory_system),
+            "schedule":      ScheduleAgent(memory_system=memory_system),
+            "task_planner":  TaskPlannerAgent(memory_system=memory_system),
+            "mediator":      MediatorAgent(memory_system=memory_system),
         }
 
     async def execute(self, user_id: int, user_text: str, date: str,
-                      db=None) -> Dict[str, Any]:
+                      db=None, busy_slots: list = None, user_tasks: list = None) -> Dict[str, Any]:
         """
         Execute complete workflow for daily plan generation.
 
         Args:
-            user_id:   User ID
-            user_text: User's mood/status input
-            date:      Date for the plan
-            db:        SQLAlchemy Session — when provided, agents get real history
+            user_id:     User ID
+            user_text:   User's mood/status input
+            date:        Date for the plan
+            db:          SQLAlchemy Session — when provided, agents get real history
+            busy_slots:  Hard-blocked time slots
+            user_tasks:  User-provided tasks to include in planning
 
         Returns:
             Final plan and explanations
@@ -62,6 +66,8 @@ class DailyPlannerGraph:
                 "mood_data":        {},
                 "agent_proposals":  {},
                 "schedule_conflicts": [],
+                "busy_slots":       busy_slots or [],   # user's hard-blocked times
+                "user_tasks":       user_tasks or [],   # user's intended tasks
                 "user_preferences": await self._load_user_preferences(user_id, memory_system),
             }
 
@@ -104,13 +110,14 @@ class DailyPlannerGraph:
 
 
     async def _run_parallel_agents(self, state: Dict[str, Any], agents: Dict) -> Dict[str, Any]:
-        """Run health, finance, learning, schedule agents sequentially (parallel-ready)."""
+        """Run health, finance, learning, schedule, and task planner agents sequentially (parallel-ready)."""
         results = {}
         try:
-            results["health"]   = await agents["health"].generate_proposal(state)
-            results["finance"]  = await agents["finance"].generate_proposal(state)
-            results["learning"] = await agents["learning"].generate_proposal(state)
-            results["schedule"] = await agents["schedule"].generate_proposal(state)
+            results["health"]        = await agents["health"].generate_proposal(state)
+            results["finance"]       = await agents["finance"].generate_proposal(state)
+            results["learning"]      = await agents["learning"].generate_proposal(state)
+            results["schedule"]      = await agents["schedule"].generate_proposal(state)
+            results["task_planner"]  = await agents["task_planner"].generate_proposal(state)
         except Exception as e:
             logger.error(f"Error in parallel agents: {e}", exc_info=True)
         return results

@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import { useStatistics, useMoodHistory } from '@hooks/useApi'
 import { format } from 'date-fns'
 import { Line } from 'react-chartjs-2'
@@ -101,21 +102,22 @@ const Sidebar: React.FC<{ userName: string }> = ({ userName }) => {
         {NAV.map((item) => {
           const isActive = active === item.href
           return (
-            <a
+            <Link
               key={item.href}
-              href={item.href}
-              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200"
+              to={item.href}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all duration-200 no-underline"
               style={{
                 background: isActive ? 'linear-gradient(135deg, rgba(168,85,247,0.25), rgba(236,72,153,0.15))' : 'transparent',
                 color:      isActive ? '#e2e8f0' : '#94a3b8',
                 border:     isActive ? '1px solid rgba(168,85,247,0.3)' : '1px solid transparent',
                 boxShadow:  isActive ? '0 0 20px rgba(168,85,247,0.15)' : 'none',
+                display: 'flex'
               }}
             >
               <span className="text-lg">{item.icon}</span>
               {item.label}
               {isActive && <span className="ml-auto w-1.5 h-1.5 rounded-full bg-purple-400" />}
-            </a>
+            </Link>
           )
         })}
       </nav>
@@ -134,6 +136,7 @@ const Sidebar: React.FC<{ userName: string }> = ({ userName }) => {
 }
 
 export const Dashboard: React.FC = () => {
+  const navigate = useNavigate()
   const userName = localStorage.getItem('user_name') || 'User'
   const userId   = localStorage.getItem('user_id')   || ''
   const { data: stats }  = useStatistics(userId)
@@ -259,7 +262,7 @@ export const Dashboard: React.FC = () => {
               <div className="h-64 flex flex-col items-center justify-center gap-3 text-slate-500">
                 <span className="text-5xl animate-float">📊</span>
                 <p className="text-sm">No data yet — go log your first mood!</p>
-                <a href="/mood" className="btn-neon text-sm">Check in now →</a>
+                <Link to="/mood" className="btn-neon text-sm no-underline">Check in now →</Link>
               </div>
             )}
           </div>
@@ -276,10 +279,10 @@ export const Dashboard: React.FC = () => {
                 { href: '/history', emoji: '🕰️', label: 'View history',   sub: 'Your journey so far',   color: '#ec4899' },
                 { href: '/insights',emoji: '📊', label: 'See insights',   sub: 'Numbers don\'t lie',    color: '#22c55e' },
               ].map((item) => (
-                <a
+                <div
                   key={item.href}
-                  href={item.href}
-                  className="flex items-center gap-3 p-3 rounded-xl transition-all duration-200 group"
+                  onClick={() => navigate(item.href)}
+                  className="flex items-center gap-3 p-3 rounded-xl transition-all duration-200 group cursor-pointer relative z-20"
                   style={{ background: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}
                   onMouseEnter={e => (e.currentTarget.style.borderColor = `${item.color}40`)}
                   onMouseLeave={e => (e.currentTarget.style.borderColor = 'rgba(255,255,255,0.06)')}
@@ -295,7 +298,7 @@ export const Dashboard: React.FC = () => {
                     <p className="text-xs text-slate-500">{item.sub}</p>
                   </div>
                   <span className="text-slate-600 group-hover:text-slate-400 transition-colors">→</span>
-                </a>
+                </div>
               ))}
             </div>
           </div>
@@ -308,9 +311,9 @@ export const Dashboard: React.FC = () => {
               <h3 className="text-white font-bold text-lg" style={{ fontFamily: 'Syne, sans-serif' }}>
                 Recent Mood Logs
               </h3>
-              <a href="/history" className="text-xs text-purple-400 hover:text-purple-300 transition-colors">
+              <Link to="/history" className="text-xs text-purple-400 hover:text-purple-300 transition-colors no-underline">
                 View all →
-              </a>
+              </Link>
             </div>
             <div className="space-y-3">
               {moods.slice(0, 5).map((m, i) => (

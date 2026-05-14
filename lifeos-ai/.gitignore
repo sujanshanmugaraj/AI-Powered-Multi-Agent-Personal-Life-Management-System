@@ -28,10 +28,12 @@ coverage.xml
 *~
 .DS_Store
 
-# Environment
+# Environment — real secrets (never commit)
 .env
 .env.local
 .env.*.local
+# But DO track the example template
+!.env.example
 
 # Database
 *.db

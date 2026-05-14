@@ -105,7 +105,7 @@ function App() {
 
     if (userId && userName && userEmail) {
       setUser({
-        id: parseInt(userId),
+        id: userId,
         name: userName,
         email: userEmail,
       })

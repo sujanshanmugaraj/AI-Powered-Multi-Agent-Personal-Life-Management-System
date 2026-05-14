@@ -1,4 +1,5 @@
 import React from 'react'
+import { Link } from 'react-router-dom'
 import { useAppStore } from '@store/appStore'
 import { useStatistics, useMoodHistory } from '@hooks/useApi'
 import { Doughnut, Bar } from 'react-chartjs-2'
@@ -112,9 +113,9 @@ export const InsightsPage: React.FC = () => {
     <div className="min-h-screen p-6 md:p-10 max-w-5xl mx-auto">
 
       {/* Back */}
-      <a href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors">
+      <Link to="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors no-underline">
         ← back to dashboard
-      </a>
+      </Link>
 
       {/* Header */}
       <div className="mb-8 animate-slideUp">
@@ -215,3 +216,5 @@ export const InsightsPage: React.FC = () => {
     </div>
   )
 }
+
+export default InsightsPage

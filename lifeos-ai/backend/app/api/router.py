@@ -10,9 +10,9 @@ from app.models.schemas import (
     MoodRequest, MoodResponse,
     DailyPlanRequest, DailyPlanResponse,
     FeedbackRequest, FeedbackResponse,
-    HistoryResponse
+    HistoryResponse, UserTaskUpdateRequest, UserTaskResponse
 )
-from app.models.database import User, MoodLog, DailyPlan, Feedback, AgentAction, BanditReward
+from app.models.database import User, MoodLog, DailyPlan, Feedback, AgentAction, BanditReward, UserTask
 from app.workflows.daily_planner import DailyPlannerGraph
 from app.learning.bandit_learning import AdaptiveRecommender, BanditLearner
 from datetime import datetime, timedelta, date as date_type
@@ -238,7 +238,9 @@ async def generate_daily_plan(request: DailyPlanRequest, db: Session = Depends(g
             user_id=request.user_id,
             user_text=user_text,
             date=request.date,
-            db=db
+            db=db,
+            busy_slots=request.busy_slots or [],
+            user_tasks=[t.dict() for t in (request.user_tasks or [])]
         )
 
         if result.get("status") == "error":
@@ -297,6 +299,25 @@ async def generate_daily_plan(request: DailyPlanRequest, db: Session = Depends(g
             )
             db.add(agent_action)
 
+        # Save processed user tasks
+        saved_tasks_response = []
+        processed_tasks = result.get("processed_tasks", [])
+        for pt in processed_tasks:
+            task_model = UserTask(
+                user_id=request.user_id,
+                plan_id=plan_id,
+                date=request.date,
+                title=pt.get("title", ""),
+                importance=pt.get("importance", 3),
+                estimated_duration=pt.get("estimated_duration", 30),
+                ai_included=pt.get("ai_included", False),
+                ai_suggestion=pt.get("ai_suggestion", ""),
+                ai_priority=pt.get("ai_priority", 0.5)
+            )
+            db.add(task_model)
+            db.flush()
+            saved_tasks_response.append(UserTaskResponse.from_attributes(task_model))
+
         db.commit()
         logger.info(
             f"Daily plan generated for user {request.user_id} "
@@ -309,7 +330,8 @@ async def generate_daily_plan(request: DailyPlanRequest, db: Session = Depends(g
             plan=final_plan,
             agent_proposals=proposals_list,
             explanation=explanation,
-            created_at=datetime.utcnow()
+            created_at=plan_data.created_at,
+            saved_tasks=saved_tasks_response
         )
 
     except HTTPException:
@@ -432,12 +454,41 @@ async def get_history(user_id: int, db: Session = Depends(get_db)):
                 }
                 for plan in plans
             ],
-            total_plans=db.query(DailyPlan).filter(DailyPlan.user_id == user_id).count()
+            total_plans=db.query(DailyPlan).filter(DailyPlan.user_id == user_id).count(),
+            task_summaries=[
+                {
+                    "date": t.date,
+                    "title": t.title,
+                    "status": t.status,
+                    "importance": t.importance,
+                    "ai_suggestion": t.ai_suggestion
+                }
+                for t in db.query(UserTask).filter(UserTask.user_id == user_id).order_by(desc(UserTask.created_at)).limit(100).all()
+            ]
         )
     except HTTPException:
         raise
     except Exception as e:
         logger.error(f"Error retrieving history: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.put("/tasks/{task_id}", response_model=UserTaskResponse)
+async def update_task_status(task_id: int, request: UserTaskUpdateRequest, db: Session = Depends(get_db)):
+    try:
+        task = db.query(UserTask).filter(UserTask.id == task_id).first()
+        if not task:
+            raise HTTPException(status_code=404, detail="Task not found")
+
+        task.status = request.status
+        if request.status == "completed":
+            task.completed_at = datetime.utcnow()
+
+        db.commit()
+        db.refresh(task)
+        return UserTaskResponse.from_attributes(task)
+    except Exception as e:
+        logger.error(f"Error updating task: {e}")
+        db.rollback()
         raise HTTPException(status_code=500, detail=str(e))
 
 @router.get("/statistics")

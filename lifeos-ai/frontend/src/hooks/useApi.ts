@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiClient } from '@services/apiClient'
-import { MoodData, DailyPlan, Feedback, HistoryItem } from '@types'
+import { Feedback } from '../types'
 
 // Mood queries
 export const useMoodAnalysis = (userId: string, text: string, enabled: boolean = false) => {
@@ -22,12 +22,32 @@ export const useMoodHistory = (userId: string, days: number = 7) => {
 }
 
 // Daily plan queries
-export const useDailyPlan = (userId: string, date: string, enabled: boolean = false) => {
+export const useDailyPlan = (
+  userId: string,
+  date: string,
+  enabled: boolean = false,
+  busySlots: { start: string; end: string; label: string }[] = [],
+  userTasks: { title: string; importance: number; estimated_duration: number }[] = []
+) => {
   return useQuery({
-    queryKey: ['daily-plan', userId, date],
-    queryFn: () => apiClient.generateDailyPlan(userId, date),
+    queryKey: ['daily-plan', userId, date, busySlots, userTasks],
+    queryFn: () => apiClient.generateDailyPlan(userId, date, busySlots, userTasks),
     enabled: enabled && !!userId,
     staleTime: 0,
+  })
+}
+
+// Update Task Status
+export const useUpdateTaskStatus = () => {
+  const queryClient = useQueryClient()
+  
+  return useMutation({
+    mutationFn: ({ taskId, status }: { taskId: number; status: 'completed' | 'skipped' | 'pending' }) =>
+      apiClient.updateTaskStatus(taskId, status),
+    onSuccess: () => {
+      // Invalidate relevant queries (history, daily-plan) if needed
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+    },
   })
 }
 

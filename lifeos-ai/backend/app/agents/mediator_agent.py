@@ -137,11 +137,31 @@ class MediatorAgent(BaseAgent):
             mood_data        = state.get("mood_data", {})
             all_proposals    = state.get("agent_proposals", {})
             schedule_conflicts = state.get("schedule_conflicts", [])
+            busy_slots       = state.get("busy_slots", [])
+            user_tasks       = state.get("user_tasks", [])
 
             conflicts    = self._identify_conflicts(all_proposals)
             resolved     = self._resolve_conflicts(all_proposals, conflicts, mood_data, schedule_conflicts)
-            final_plan   = self._build_friendly_plan(resolved, mood_data, all_proposals)
-            explanation  = self._build_explanation(conflicts, final_plan, mood_data)
+            
+            # Incorporate user_tasks into the resolved plan list
+            processed_tasks = self._process_user_tasks(user_tasks, mood_data)
+            
+            # Add user tasks as pseudo-proposals so they get woven into the schedule
+            for pt in processed_tasks:
+                if pt.get("ai_included"):
+                    resolved.append({
+                        "agent": "user_task",
+                        "proposal": pt["title"],
+                        "duration": pt["estimated_duration"],
+                        "priority": pt["ai_priority"],
+                        "task_ref": pt  # reference to the task dict
+                    })
+                    
+            # Sort resolved again by priority
+            resolved.sort(key=lambda x: x.get("priority", 0), reverse=True)
+
+            final_plan   = self._build_friendly_plan(resolved, mood_data, all_proposals, busy_slots)
+            explanation  = self._build_explanation(conflicts, final_plan, mood_data, busy_slots, len(processed_tasks))
 
             proposal = self._build_standard_proposal(
                 proposal_text="Final personalized daily plan created",
@@ -154,6 +174,7 @@ class MediatorAgent(BaseAgent):
             proposal["final_plan"]        = final_plan
             proposal["conflicts_resolved"] = len(conflicts)
             proposal["plan_items"]         = len(final_plan)
+            proposal["processed_tasks"]    = processed_tasks
 
             self.log_proposal(proposal)
             return proposal
@@ -206,24 +227,101 @@ class MediatorAgent(BaseAgent):
             adapted["stress_adapted"] = True
         return adapted
 
+    def _process_user_tasks(self, user_tasks: List[Dict], mood_data: Dict) -> List[Dict]:
+        """Process user tasks, decide whether to include them based on mood/importance"""
+        stress = mood_data.get("stress_score", 0.5)
+        energy = mood_data.get("energy_score", 0.5)
+        
+        processed = []
+        for task in user_tasks:
+            pt = dict(task)
+            importance = pt.get("importance", 3)
+            duration = pt.get("estimated_duration", 30)
+            
+            # Base priority from importance (1-5 mapped to 0.5-1.0)
+            ai_priority = 0.5 + (importance / 10.0)
+            ai_included = True
+            ai_suggestion = "Scheduled as requested."
+            
+            # Adjust based on mood
+            if stress > 0.8 and importance < 3:
+                ai_included = False
+                ai_suggestion = "Skipped today due to high stress. Focus on rest."
+            elif stress > 0.6 and duration > 60:
+                ai_priority -= 0.2
+                ai_suggestion = "Split this large task into smaller chunks if possible."
+            elif energy > 0.8:
+                ai_priority += 0.1
+                ai_suggestion = "High energy! Good time to tackle this."
+                
+            pt["ai_included"] = ai_included
+            pt["ai_priority"] = ai_priority
+            pt["ai_suggestion"] = ai_suggestion
+            processed.append(pt)
+            
+        return processed
+
     # ── The main plan builder ─────────────────────────────────────────────
 
     def _build_friendly_plan(self, resolved_plan: List[Dict],
-                              mood_data: Dict, all_proposals: Dict) -> List[Dict]:
+                              mood_data: Dict, all_proposals: Dict,
+                              busy_slots: List[Dict] = None) -> List[Dict]:
         """
         Build a natural-language, human-friendly daily schedule.
         Skips agent-internal data (mood raw text, schedule availability text).
+        Hard-blocked busy_slots are inserted as locked events; tasks are
+        placed only in the gaps between them.
         Each plan item has: time, task, duration, emoji-friendly label.
         """
         mood         = mood_data.get("mood", "neutral")
         stress       = mood_data.get("stress_score", 0.5)
         energy       = mood_data.get("energy_score", 0.5)
         final_plan: List[Dict] = []
+
+        # Sort busy slots so we can skip over them in order
+        sorted_busy = sorted(busy_slots or [], key=lambda s: s.get("start", "00:00"))
+        busy_idx    = 0   # pointer into sorted_busy
         current_time = "09:00"
+
+        def _skip_busy(t: str) -> str:
+            """Advance t past any busy slots that overlap it."""
+            nonlocal busy_idx
+            while busy_idx < len(sorted_busy):
+                b = sorted_busy[busy_idx]
+                b_start = b.get("start", "99:99")
+                b_end   = b.get("end",   "99:99")
+                if t >= b_end:
+                    busy_idx += 1   # already past this slot
+                    continue
+                if t >= b_start:
+                    # We're inside this busy block — jump to its end
+                    t = b_end
+                    busy_idx += 1
+                    continue
+                break  # next busy slot is still in the future
+            return t
+
+        def _insert_busy_blocks_before(t: str) -> None:
+            """Append any busy-slot cards whose start falls before time t."""
+            nonlocal busy_idx
+            tmp_idx = busy_idx
+            for b in sorted_busy[tmp_idx:]:
+                if b.get("start", "99:99") < t:
+                    label = b.get("label") or f"Busy ({b.get('start','?')}–{b.get('end','?')})"
+                    final_plan.append({
+                        "time":     f"{b['start']}-{b['end']}",
+                        "task":     f"🔒 {label}",
+                        "duration": self._time_diff(b["start"], b["end"]),
+                        "agent":    "schedule",
+                        "priority": 1.0,
+                        "reason":   "Your pre-existing commitment — plan works around this",
+                        "locked":   True,
+                    })
 
         # ── 1. Greeting / intention block ─────────────────────────────────
         greeting_options = GREET_TEMPLATES.get(mood, GREET_TEMPLATES["neutral"])
         greeting = random.choice(greeting_options)
+        current_time = _skip_busy(current_time)
         final_plan.append({
             "time":     f"{current_time}-{_add_minutes(current_time, 5)}",
             "task":     greeting,
@@ -236,6 +334,7 @@ class MediatorAgent(BaseAgent):
 
         # ── 2. Stress relief / morning ritual if stressed ─────────────────
         if stress > 0.6:
+            current_time = _skip_busy(current_time)
             final_plan.append({
                 "time":     f"{current_time}-{_add_minutes(current_time, 10)}",
                 "task":     "🧘 Morning breathing or quick meditation (5–10 mins)",
@@ -270,7 +369,6 @@ class MediatorAgent(BaseAgent):
                 activity = proposal.get("activity", raw)
                 intensity = proposal.get("intensity", "medium")
                 task_text = _friendly_health(activity or raw, mood, intensity)
-                # If high stress adapted the duration
                 if proposal.get("stress_adapted"):
                     task_text += " (shortened for today)"
 
@@ -287,15 +385,25 @@ class MediatorAgent(BaseAgent):
                 mode     = proposal.get("study_mode", "regular")
                 task_text = _friendly_learning(raw, subject, duration, mode)
 
+            # ── User Task ─────────────────────────────────────────────────
+            elif agent == "user_task":
+                task_text = f"🎯 {proposal.get('proposal', 'Task')}"
+                if proposal.get("task_ref"):
+                    ref = proposal["task_ref"]
+                    if ref.get("ai_suggestion") and ref["ai_suggestion"] != "Scheduled as requested.":
+                        task_text += f" (💡 {ref['ai_suggestion']})"
+
             # ── Any other custom agent ────────────────────────────────────
             else:
                 raw = proposal.get("proposal", "")
                 if raw and "detected mood" not in raw.lower() and "available time blocks" not in raw.lower():
                     task_text = f"📌 {raw}"
 
-            # Only add if we have a meaningful task
             if not task_text:
                 continue
+
+            # Advance past any busy slots before placing this task
+            current_time = _skip_busy(current_time)
 
             end_time = _add_minutes(current_time, duration)
             final_plan.append({
@@ -310,6 +418,7 @@ class MediatorAgent(BaseAgent):
 
             # Short break after long tasks (>= 45 min)
             if duration >= 45:
+                current_time = _skip_busy(current_time)
                 break_msg = random.choice(BREAK_MESSAGES)
                 break_end = _add_minutes(current_time, 10)
                 final_plan.append({
@@ -322,8 +431,21 @@ class MediatorAgent(BaseAgent):
                 })
                 current_time = break_end
 
-        # ── 4. Wind-down block at end ─────────────────────────────────────
-        wind_down_time = "20:30"   # fixed near end of day
+        # ── 4. Append any remaining busy-slot cards ───────────────────────
+        for b in sorted_busy[busy_idx:]:
+            label = b.get("label") or f"Busy ({b.get('start','?')}–{b.get('end','?')})"
+            final_plan.append({
+                "time":     f"{b['start']}-{b['end']}",
+                "task":     f"🔒 {label}",
+                "duration": self._time_diff(b.get("start","00:00"), b.get("end","00:00")),
+                "agent":    "schedule",
+                "priority": 1.0,
+                "reason":   "Your pre-existing commitment",
+                "locked":   True,
+            })
+
+        # ── 5. Wind-down block at end ─────────────────────────────────────
+        wind_down_time = "20:30"
         final_plan.append({
             "time":     f"{wind_down_time}-{_add_minutes(wind_down_time, 15)}",
             "task":     random.choice(WIND_DOWN),
@@ -333,7 +455,23 @@ class MediatorAgent(BaseAgent):
             "reason":   "End-of-day reflection",
         })
 
+        # Sort the whole plan by start time so locked + free tasks appear in order
+        def _sort_key(item: Dict) -> str:
+            t = item.get("time", "99:99")
+            return t.split("-")[0] if "-" in t else t
+
+        final_plan.sort(key=_sort_key)
         return final_plan
+
+    def _time_diff(self, start: str, end: str) -> int:
+        """Return difference in minutes between two HH:MM strings."""
+        try:
+            sh, sm = map(int, start.split(":"))
+            eh, em = map(int, end.split(":"))
+            return max(0, (eh * 60 + em) - (sh * 60 + sm))
+        except Exception:
+            return 0
+
 
     # ── Helpers ───────────────────────────────────────────────────────────
 
@@ -356,7 +494,8 @@ class MediatorAgent(BaseAgent):
             return "Consistent study builds momentum towards your goals"
         return proposal.get("reasoning", "")[:80] if proposal.get("reasoning") else ""
 
-    def _build_explanation(self, conflicts: List[Dict], final_plan: List[Dict], mood_data: Dict) -> str:
+    def _build_explanation(self, conflicts: List[Dict], final_plan: List[Dict],
+                           mood_data: Dict, busy_slots: List[Dict] = None, user_tasks_count: int = 0) -> str:
         mood   = mood_data.get("mood", "neutral")
         stress = mood_data.get("stress_score", 0.5)
         energy = mood_data.get("energy_score", 0.5)
@@ -369,6 +508,13 @@ class MediatorAgent(BaseAgent):
             lines.append("High stress detected — recovery tasks are prioritised and heavy work is reduced.")
         elif energy > 0.7:
             lines.append("High energy today — plan includes productive and intensive sessions.")
+
+        if busy_slots:
+            labels = [s.get("label") or f"{s.get('start','?')}–{s.get('end','?')}" for s in busy_slots]
+            lines.append(f"Your {len(busy_slots)} blocked time(s) ({', '.join(labels)}) are respected — all tasks fit around them.")
+            
+        if user_tasks_count > 0:
+            lines.append(f"Wove in your {user_tasks_count} task(s), adjusting based on your current bandwidth.")
 
         if conflicts:
             lines.append(f"{len(conflicts)} scheduling conflict(s) were resolved automatically.")

@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { User, MoodData, DailyPlan } from '@types'
+import { User, MoodData, DailyPlan } from '../types'
 
 interface AppStore {
   user: User | null

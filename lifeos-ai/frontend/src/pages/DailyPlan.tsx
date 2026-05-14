@@ -1,6 +1,7 @@
 import React, { useState } from 'react'
+import { Link } from 'react-router-dom'
 import { useAppStore } from '@store/appStore'
-import { useDailyPlan, useSubmitFeedback } from '@hooks/useApi'
+import { useDailyPlan, useSubmitFeedback, useUpdateTaskStatus } from '@hooks/useApi'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
@@ -14,6 +15,9 @@ const AGENT_COLOR: Record<string, string> = {
   learning: '#06b6d4', schedule: '#ec4899', mediator: '#94a3b8',
 }
 
+interface BusySlot { start: string; end: string; label: string }
+interface UserTaskInput { title: string; importance: number; estimated_duration: number }
+
 export const DailyPlanPage: React.FC = () => {
   const { user, currentPlan, setCurrentPlan } = useAppStore()
   const [selectedDate, setSelectedDate] = useState(format(new Date(), 'yyyy-MM-dd'))
@@ -21,17 +25,72 @@ export const DailyPlanPage: React.FC = () => {
   const [feedback, setFeedback]         = useState('')
   const [completedTasks, setCompletedTasks] = useState<string[]>([])
 
+  // ── Busy slots ──────────────────────────────────────────────────────────────
+  const [busySlots, setBusySlots] = useState<BusySlot[]>([])
+  const [newSlot, setNewSlot]     = useState<BusySlot>({ start: '', end: '', label: '' })
+  const [showBusyForm, setShowBusyForm] = useState(false)
+
+  const addBusySlot = () => {
+    if (!newSlot.start || !newSlot.end) {
+      toast.error('add start & end time first 🕐')
+      return
+    }
+    if (newSlot.start >= newSlot.end) {
+      toast.error('end time must be after start time ⏰')
+      return
+    }
+    setBusySlots(prev => [...prev, { ...newSlot, label: newSlot.label || `Busy ${newSlot.start}–${newSlot.end}` }])
+    setNewSlot({ start: '', end: '', label: '' })
+    toast.success('blocked time added ✅')
+  }
+
+  const removeBusySlot = (idx: number) =>
+    setBusySlots(prev => prev.filter((_, i) => i !== idx))
+  // ── User Tasks ──────────────────────────────────────────────────────────────
+  const [userTasks, setUserTasks] = useState<UserTaskInput[]>([])
+  const [newTask, setNewTask] = useState<UserTaskInput>({ title: '', importance: 3, estimated_duration: 30 })
+  const [showTaskForm, setShowTaskForm] = useState(false)
+
+  const addUserTask = () => {
+    if (!newTask.title.trim()) {
+      toast.error('Task title cannot be empty')
+      return
+    }
+    setUserTasks(prev => [...prev, newTask])
+    setNewTask({ title: '', importance: 3, estimated_duration: 30 })
+    toast.success('Task added')
+  }
+
+  const removeUserTask = (idx: number) => {
+    setUserTasks(prev => prev.filter((_, i) => i !== idx))
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   const { data: plan, isLoading: planLoading } = useDailyPlan(
-    user?.id || '', selectedDate, shouldFetch
+    user?.id || '', selectedDate, shouldFetch, busySlots, userTasks
   )
   const { mutate: submitFeedback, isPending: feedbackLoading } = useSubmitFeedback()
+  const { mutate: updateTask } = useUpdateTaskStatus()
+
+  // Local state for toggling DB tasks quickly without waiting for refetch
+  const [localSavedTasks, setLocalSavedTasks] = useState<any[]>([])
 
   React.useEffect(() => {
     if (plan) {
       setCurrentPlan(plan)
+      setLocalSavedTasks(plan.saved_tasks || [])
       setShouldFetch(false)
     }
   }, [plan, setCurrentPlan])
+
+  const toggleTaskStatus = (task: any) => {
+    const newStatus = task.status === 'completed' ? 'pending' : 'completed'
+    // Optimistic UI update
+    setLocalSavedTasks(prev =>
+      prev.map(t => (t.id === task.id ? { ...t, status: newStatus } : t))
+    )
+    updateTask({ taskId: task.id, status: newStatus })
+  }
 
   const handleGeneratePlan = () => setShouldFetch(true)
 
@@ -62,9 +121,9 @@ export const DailyPlanPage: React.FC = () => {
     <div className="min-h-screen p-6 md:p-10 max-w-5xl mx-auto">
 
       {/* Back */}
-      <a href="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors">
+      <Link to="/dashboard" className="inline-flex items-center gap-2 text-slate-400 hover:text-purple-400 text-sm mb-8 transition-colors no-underline">
         ← back to dashboard
-      </a>
+      </Link>
 
       {/* Header */}
       <div className="mb-8 animate-slideUp">
@@ -75,7 +134,7 @@ export const DailyPlanPage: React.FC = () => {
       </div>
 
       {/* Date + Generate */}
-      <div className="glass-card p-5 mb-6 animate-slideUp delay-100">
+      <div className="glass-card p-5 mb-4 animate-slideUp delay-100">
         <div className="flex flex-col sm:flex-row gap-4 items-end">
           <div className="flex-1">
             <label className="text-xs text-slate-400 font-semibold tracking-wider uppercase block mb-2">Date</label>
@@ -97,6 +156,221 @@ export const DailyPlanPage: React.FC = () => {
             }
           </button>
         </div>
+      </div>
+
+      {/* Tasks Card */}
+      <div
+        className="mb-6 animate-slideUp delay-125 rounded-2xl p-5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        <div
+          onClick={() => setShowTaskForm(f => !f)}
+          className="flex items-center justify-between cursor-pointer select-none"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🎯</span>
+            <div>
+              <p className="text-sm font-bold text-white">My Tasks Today</p>
+              <p className="text-xs text-slate-500">
+                {userTasks.length === 0
+                  ? 'Add things you need to get done today'
+                  : `${userTasks.length} task(s) to schedule`}
+              </p>
+            </div>
+          </div>
+          <span className="text-slate-400 text-sm">{showTaskForm ? '▲ collapse' : '▼ expand'}</span>
+        </div>
+
+        {showTaskForm && (
+          <div className="mt-4 space-y-3" onClick={e => e.stopPropagation()}>
+            {/* Existing tasks */}
+            {userTasks.map((task, idx) => (
+              <div
+                key={idx}
+                className="flex items-center justify-between px-4 py-2 rounded-xl text-sm"
+                style={{ background: 'rgba(6,182,212,0.1)', border: '1px solid rgba(6,182,212,0.25)' }}
+              >
+                <div>
+                  <span className="text-cyan-400 font-bold">{task.title}</span>
+                  <span className="text-slate-400 ml-2">({task.estimated_duration}m • Imp: {task.importance}/5)</span>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeUserTask(idx) }}
+                  className="text-slate-500 hover:text-red-400 transition-colors text-xs ml-4"
+                >
+                  ✕ remove
+                </button>
+              </div>
+            ))}
+
+            {/* Add new task form */}
+            <div className="grid grid-cols-1 sm:grid-cols-12 gap-2 mt-2">
+              <div className="sm:col-span-6">
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">Task Title</label>
+                <input
+                  type="text"
+                  className="input-genz"
+                  style={{ fontSize: '14px', padding: '10px 14px' }}
+                  placeholder="e.g. Finish report, Buy groceries..."
+                  value={newTask.title}
+                  onChange={e => setNewTask(s => ({ ...s, title: e.target.value }))}
+                  onKeyDown={e => { if (e.key === 'Enter') addUserTask() }}
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">Mins</label>
+                <input
+                  type="number"
+                  className="input-genz"
+                  style={{ fontSize: '14px', padding: '10px 14px' }}
+                  min={5} step={5}
+                  value={newTask.estimated_duration}
+                  onChange={e => setNewTask(s => ({ ...s, estimated_duration: parseInt(e.target.value) || 30 }))}
+                />
+              </div>
+              <div className="sm:col-span-3">
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">Imp (1-5)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="number"
+                    className="input-genz"
+                    style={{ fontSize: '14px', padding: '10px 14px' }}
+                    min={1} max={5}
+                    value={newTask.importance}
+                    onChange={e => setNewTask(s => ({ ...s, importance: parseInt(e.target.value) || 3 }))}
+                  />
+                  <button
+                    onClick={e => { e.stopPropagation(); addUserTask() }}
+                    className="btn-neon-cyan text-sm flex-shrink-0"
+                    style={{
+                      padding: '10px 18px',
+                      background: 'rgba(6,182,212,0.15)',
+                      border: '1px solid rgba(6,182,212,0.4)',
+                    }}
+                  >
+                    + add
+                  </button>
+                </div>
+              </div>
+            </div>
+            
+            {userTasks.length > 0 && (
+              <p className="text-xs text-slate-500 italic pt-1">
+                🤖 The AI will prioritize these and schedule them at the best time based on your mood.
+              </p>
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Busy Times Card — uses inline style to avoid glass-card overflow:hidden */}
+      <div
+        className="mb-6 animate-slideUp delay-150 rounded-2xl p-5"
+        style={{
+          background: 'linear-gradient(135deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)',
+          border: '1px solid rgba(255,255,255,0.08)',
+        }}
+      >
+        {/* Header toggle — div not button so it doesn't conflict with nested inputs */}
+        <div
+          onClick={() => setShowBusyForm(f => !f)}
+          className="flex items-center justify-between cursor-pointer select-none"
+        >
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🔒</span>
+            <div>
+              <p className="text-sm font-bold text-white">My Busy Times</p>
+              <p className="text-xs text-slate-500">
+                {busySlots.length === 0
+                  ? 'Tell the AI what times to skip — it plans around them'
+                  : `${busySlots.length} blocked time(s) added`}
+              </p>
+            </div>
+          </div>
+          <span className="text-slate-400 text-sm">{showBusyForm ? '▲ collapse' : '▼ expand'}</span>
+        </div>
+
+        {showBusyForm && (
+          <div className="mt-4 space-y-3" onClick={e => e.stopPropagation()}>
+            {/* Existing busy slots */}
+            {busySlots.map((slot, idx) => (
+              <div
+                key={idx}
+                className="flex items-center justify-between px-4 py-2 rounded-xl text-sm"
+                style={{ background: 'rgba(236,72,153,0.1)', border: '1px solid rgba(236,72,153,0.25)' }}
+              >
+                <div>
+                  <span className="text-pink-400 font-bold">{slot.start} – {slot.end}</span>
+                  <span className="text-slate-400 ml-2">{slot.label}</span>
+                </div>
+                <button
+                  onClick={(e) => { e.stopPropagation(); removeBusySlot(idx) }}
+                  className="text-slate-500 hover:text-red-400 transition-colors text-xs ml-4"
+                >
+                  ✕ remove
+                </button>
+              </div>
+            ))}
+
+            {/* Add new slot form */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+              <div>
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">Start</label>
+                <input
+                  type="time"
+                  className="input-genz"
+                  style={{ fontSize: '14px', padding: '10px 14px' }}
+                  value={newSlot.start}
+                  onChange={e => setNewSlot(s => ({ ...s, start: e.target.value }))}
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">End</label>
+                <input
+                  type="time"
+                  className="input-genz"
+                  style={{ fontSize: '14px', padding: '10px 14px' }}
+                  value={newSlot.end}
+                  onChange={e => setNewSlot(s => ({ ...s, end: e.target.value }))}
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="text-xs text-slate-500 uppercase tracking-wider block mb-1">Label (optional)</label>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    className="input-genz flex-1"
+                    style={{ fontSize: '14px', padding: '10px 14px' }}
+                    placeholder="e.g. Team meeting, Class..."
+                    value={newSlot.label}
+                    onChange={e => setNewSlot(s => ({ ...s, label: e.target.value }))}
+                    onKeyDown={e => { if (e.key === 'Enter') addBusySlot() }}
+                  />
+                  <button
+                    onClick={e => { e.stopPropagation(); addBusySlot() }}
+                    className="btn-neon text-sm flex-shrink-0"
+                    style={{
+                      padding: '10px 18px',
+                      background: 'rgba(236,72,153,0.15)',
+                      border: '1px solid rgba(236,72,153,0.4)',
+                    }}
+                  >
+                    + block
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {busySlots.length > 0 && (
+              <p className="text-xs text-slate-500 italic pt-1">
+                🤖 The AI will schedule everything around these blocked times automatically
+              </p>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Plan content */}
@@ -150,7 +424,7 @@ export const DailyPlanPage: React.FC = () => {
             )}
 
             <div className="space-y-3">
-              {currentPlan.plan.map((item, idx) => {
+              {currentPlan.plan.map((item: any, idx: number) => {
                 const isCompleted = completedTasks.includes(item.task)
                 const agentColor  = AGENT_COLOR[item.agent || 'mediator'] || '#94a3b8'
                 return (
@@ -209,13 +483,54 @@ export const DailyPlanPage: React.FC = () => {
             </div>
           </div>
 
+          {/* User Tasks (DB Tracked) */}
+          {localSavedTasks.length > 0 && (
+            <div className="glass-card p-5">
+              <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase mb-3">Tasks Tracked</p>
+              <div className="space-y-2">
+                {localSavedTasks.map((task: any) => {
+                  const isDone = task.status === 'completed'
+                  return (
+                    <div
+                      key={task.id}
+                      className="flex items-center justify-between p-3 rounded-lg"
+                      style={{ background: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.05)' }}
+                    >
+                      <div className="flex-1">
+                        <span className={`text-sm font-bold ${isDone ? 'line-through text-slate-500' : 'text-cyan-400'}`}>
+                          {task.title}
+                        </span>
+                        <span className="text-xs text-slate-500 ml-2">({task.estimated_duration}m)</span>
+                        {!task.ai_included && (
+                          <p className="text-xs text-red-400 mt-1 italic">
+                            Skipped: {task.ai_suggestion}
+                          </p>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => toggleTaskStatus(task)}
+                        className="btn-genz text-xs px-3 py-1 ml-4"
+                        style={{
+                          background: isDone ? 'rgba(34,197,94,0.1)' : 'rgba(255,255,255,0.05)',
+                          color: isDone ? '#4ade80' : '#94a3b8',
+                          borderColor: isDone ? 'rgba(34,197,94,0.3)' : 'transparent',
+                        }}
+                      >
+                        {isDone ? 'completed' : 'mark done'}
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Agent proposals */}
           {currentPlan.agent_proposals && currentPlan.agent_proposals.length > 0 && (
             <div className="glass-card p-5">
               <p className="text-xs text-slate-500 font-semibold tracking-wider uppercase mb-4">Agent Recommendations</p>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {currentPlan.agent_proposals.map((ap, idx) => {
+                {currentPlan.agent_proposals.map((ap: any, idx: number) => {
                   const color = AGENT_COLOR[ap.agent] || '#94a3b8'
                   const emoji = AGENT_EMOJI[ap.agent] || '🤖'
                   return (
@@ -306,3 +621,5 @@ export const DailyPlanPage: React.FC = () => {
     </div>
   )
 }
+
+export default DailyPlanPage

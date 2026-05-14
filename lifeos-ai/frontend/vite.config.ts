@@ -16,6 +16,7 @@ export default defineConfig({
       '@utils': path.resolve(__dirname, './src/utils'),
     },
   },
+  // Dev server — proxies /api to local FastAPI (rewrite strips /api → /api/v1)
   server: {
     port: 3000,
     proxy: {
@@ -25,5 +26,9 @@ export default defineConfig({
         rewrite: (path) => path.replace(/^\/api/, '/api/v1'),
       },
     },
+  },
+  // Production build — expose API base URL so apiClient can use it
+  define: {
+    __API_URL__: JSON.stringify(process.env.VITE_API_URL ?? '/api/v1'),
   },
 })

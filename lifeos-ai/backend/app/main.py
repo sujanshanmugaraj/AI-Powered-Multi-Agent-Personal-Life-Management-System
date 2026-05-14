@@ -10,6 +10,7 @@ import logging
 from app.config import settings
 from app.database import engine, Base
 from app.api import router
+from app.api.task_endpoints import task_router
 
 # Set up logging
 logging.basicConfig(level=logging.INFO)
@@ -45,6 +46,7 @@ app.add_middleware(
 
 # Include routers
 app.include_router(router.router, prefix="/api/v1", tags=["v1"])
+app.include_router(task_router)
 
 @app.get("/health")
 async def health_check():

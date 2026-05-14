@@ -29,26 +29,33 @@ class ScheduleAgent(BaseAgent):
             memory_context = await self.get_memory_context(state)
             calendar = memory_context.get("calendar", [])
             user_preferences = state.get("user_preferences", {})
-            
-            # Parse calendar for free slots
-            free_slots = self._find_free_slots(calendar)
-            
+
+            # Merge user-supplied busy slots with any calendar events
+            busy_slots = state.get("busy_slots", [])
+            merged_calendar = list(calendar) + list(busy_slots)
+
+            # Parse calendar for free slots (respects busy_slots)
+            free_slots = self._find_free_slots(merged_calendar)
+
             # Get other agent proposals to detect conflicts
             other_proposals = state.get("agent_proposals", {})
-            conflicts = self._detect_conflicts(free_slots, other_proposals, calendar)
-            
+            conflicts = self._detect_conflicts(free_slots, other_proposals, merged_calendar)
+
             # Build schedule suggestion
             schedule_suggestion = self._build_schedule(free_slots, other_proposals)
-            
+
             proposal_text = f"Available time blocks: {self._format_slots(free_slots)}"
+            if busy_slots:
+                labels = [s.get("label", f"{s.get('start','?')}-{s.get('end','?')}") for s in busy_slots]
+                proposal_text += f". Respecting your blocked times: {', '.join(labels)}."
             if conflicts:
-                proposal_text += f". {len(conflicts)} conflict(s) detected."
-            
-            priority = 0.9  # Schedule is critical
-            confidence = 0.85 if calendar else 0.5
-            
-            reasoning = self._build_reasoning(free_slots, conflicts, memory_context)
-            
+                proposal_text += f" {len(conflicts)} conflict(s) detected."
+
+            priority   = 0.9
+            confidence = 0.85 if merged_calendar else 0.5
+
+            reasoning = self._build_reasoning(free_slots, conflicts, memory_context, busy_slots)
+
             proposal = self._build_standard_proposal(
                 proposal_text=proposal_text,
                 priority=priority,
@@ -57,12 +64,13 @@ class ScheduleAgent(BaseAgent):
                 memory_used=[k for k in memory_context.keys()],
                 conflicts=[]
             )
-            
-            proposal["available_slots"] = free_slots
-            proposal["conflicts"] = conflicts
+
+            proposal["available_slots"]   = free_slots
+            proposal["conflicts"]         = conflicts
             proposal["suggested_schedule"] = schedule_suggestion
-            proposal["total_free_time"] = sum(slot["duration"] for slot in free_slots)
-            
+            proposal["total_free_time"]   = sum(slot["duration"] for slot in free_slots)
+            proposal["busy_slots"]        = busy_slots
+
             self.log_proposal(proposal)
             return proposal
             
@@ -197,21 +205,25 @@ class ScheduleAgent(BaseAgent):
         
         return ", ".join(formatted)
     
-    def _build_reasoning(self, free_slots: List[Dict], 
-                        conflicts: List[Dict], memory_context: Dict) -> str:
+    def _build_reasoning(self, free_slots: List[Dict],
+                        conflicts: List[Dict], memory_context: Dict,
+                        busy_slots: List[Dict] = None) -> str:
         """Build reasoning for schedule proposal"""
-        
+
         reasoning = f"Found {len(free_slots)} free time blocks. "
-        
+
         total_free = sum(slot["duration"] for slot in free_slots)
         reasoning += f"Total available: {total_free} minutes. "
-        
+
+        if busy_slots:
+            reasoning += f"{len(busy_slots)} busy slot(s) blocked out by user. "
+
         if conflicts:
             reasoning += f"{len(conflicts)} conflict(s) detected and flagged for mediator. "
-        
+
         if memory_context.get("user_time_preference"):
             reasoning += f"User prefers {memory_context['user_time_preference']} work sessions."
-        
+
         return reasoning
     
     def _build_error_proposal(self, error_msg: str) -> Dict[str, Any]:
